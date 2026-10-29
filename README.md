@@ -52,5 +52,13 @@ Bitmap Heap Scan on enrollments  (cost=4.31..15.59 rows=3 width=34)
 
 2. For extremely small tables like courses (6 rows), all data fits into a single disk page. Reading the single page sequentially (Seq Scan) is cheaper and faster for the query planner than opening an index, fetching the record address, and then looking up the row. For 50,000 rows, scanning the whole table is expensive, so an index saves significant I/O operations.
 
-3. - Queries filtering or joining enrollments by student, such as SELECT * FROM enrollments WHERE student_id = X or JOIN enrollments ON student_id. 
-- Cascading deletions or checks when a student is removed (DELETE FROM students WHERE id = X), allowing the database to instantly locate child rows in enrollments to delete without scanning 50,000 records.
+3.  - Queries filtering or joining enrollments by student, such as SELECT * FROM enrollments WHERE student_id = X or JOIN enrollments ON student_id. 
+    - Cascading deletions or checks when a student is removed (DELETE FROM students WHERE id = X), allowing the database to instantly locate child rows in enrollments to delete without scanning 50,000 records.
+
+## Transaction
+
+Scenario: enroll a new student in a course — two inserts in one transaction.
+
+- The second insert failed due to a foreign key violation (`enrollments_course_id_fkey`). `psql` changed the prompt to `course_catalog=!>`, indicating that the current transaction was aborted and subsequent commands were ignored until the end of the block. After `ROLLBACK`, the first insert was reverted as well, leaving zero orphaned student records in the database (`count = 0`).
+- Window B saw `count = 0` before `COMMIT` due to the default `Read Committed` isolation level. After `COMMIT` in Window A, Window B saw `count = 1`.
+- Without a transaction, if the second insert had failed, the new student record would have remained permanently saved in the database without any course enrollments ("half an operation" / dangling row).
