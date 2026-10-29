@@ -5,7 +5,7 @@ DROP TABLE IF EXISTS enrollments, students, courses;
 
 CREATE TABLE courses (
     id text PRIMARY KEY,
-    name text NOT NULL,
+    title text NOT NULL,
     description text NOT NULL,
     credits integer NOT NULL CHECK (credits > 0),
     is_elective boolean NOT NULL DEFAULT false,
