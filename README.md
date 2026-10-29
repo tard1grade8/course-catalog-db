@@ -21,3 +21,36 @@ Commands were run with `\set VERBOSITY verbose`.
 
 ### Why repeat Pydantic checks in the database?
 Pydantic performs input validation in the application memory, but it only protects the data entering through the API endpoints. Database constraints act as the final line of defense against invalid data introduced by SQL scripts, direct `psql` administration, migration bugs, or race conditions from parallel requests. Constraints ensure long-term data integrity regardless of application code updates.
+
+## Index: EXPLAIN before and after
+
+Query: `SELECT * FROM enrollments WHERE student_id = 777;`  
+Database `idx_demo`: 500 courses, 20,000 students, 50,000 enrollments.
+
+| Metric | Before the index | After the index |
+|---|---|---|
+| Access method | Seq Scan | Bitmap Heap Scan (via Bitmap Index Scan) |
+| Cost estimate | 0.00..1042.00 | 4.31..15.59 |
+| Rows Removed by Filter | ~49997 | 0 |
+| Execution Time | ~3.636 ms | ~0.052 ms |
+
+### Query Plans
+
+**Before index:**
+Seq Scan on enrollments  (cost=0.00..1042.00 rows=3 width=34)
+  Filter: (student_id = 777)
+
+**After index:**
+Bitmap Heap Scan on enrollments  (cost=4.31..15.59 rows=3 width=34)
+  Recheck Cond: (student_id = 777)
+  ->  Bitmap Index Scan on enrollments_student_id_idx  (cost=0.00..4.31 rows=3 width=0)
+        Index Cond: (student_id = 777)
+
+### Answers to questions
+
+1. PostgreSQL automatically creates B-tree indexes only for PRIMARY KEY and UNIQUE constraints (e.g., students_email_key and composite UNIQUE (course_id, student_id)). It does not automatically build indexes on FOREIGN KEY columns. Since student_id is the second column in the composite index (course_id, student_id), it cannot be used efficiently for filtering by student_id alone.
+
+2. For extremely small tables like courses (6 rows), all data fits into a single disk page. Reading the single page sequentially (Seq Scan) is cheaper and faster for the query planner than opening an index, fetching the record address, and then looking up the row. For 50,000 rows, scanning the whole table is expensive, so an index saves significant I/O operations.
+
+3. - Queries filtering or joining enrollments by student, such as SELECT * FROM enrollments WHERE student_id = X or JOIN enrollments ON student_id. 
+- Cascading deletions or checks when a student is removed (DELETE FROM students WHERE id = X), allowing the database to instantly locate child rows in enrollments to delete without scanning 50,000 records.

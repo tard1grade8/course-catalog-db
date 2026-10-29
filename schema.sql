@@ -24,4 +24,7 @@ CREATE TABLE enrollments (
     student_id bigint NOT NULL REFERENCES students(id) ON DELETE CASCADE,
     enrolled_at timestamp with time zone NOT NULL DEFAULT now(),
     UNIQUE (student_id, course_id)
-); 
+);
+
+-- Index on the foreign key student_id (part 6)
+CREATE INDEX enrollments_student_id_idx ON enrollments (student_id);
