@@ -1,4 +1,62 @@
-# Course Catalog Database (Lab 6)
+# course-catalog-db
+
+PostgreSQL schema for the course catalog (Lab 6, "Advanced Web Technologies").
+
+## How to run
+
+PostgreSQL 16 or newer is required. Once, as the `postgres` superuser:
+
+```sql
+CREATE ROLE catalog_app LOGIN PASSWORD 'change-me';
+CREATE DATABASE course_catalog OWNER catalog_app;
+```
+
+Then, from the project folder (it stops at the first error): 
+
+```bash 
+psql -h localhost -U catalog_app -d course_catalog -v ON_ERROR_STOP=1 -f schema.sql 
+psql -h localhost -U catalog_app -d course_catalog -v ON_ERROR_STOP=1 -f seed.sql 
+psql -h localhost -U catalog_app -d course_catalog -v ON_ERROR_STOP=1 -f queries.sql 
+``` 
+
+The password `change-me` is for teaching; real projects keep passwords out of git.
+
+## Schema
+
+```mermaid 
+erDiagram
+    COURSES ||--o{ ENROLLMENTS : "course enrollments"
+    STUDENTS ||--o{ ENROLLMENTS : "student enrollments"
+
+    COURSES {
+        text id PK "course slug"
+        text title
+        text description
+        integer credits
+        boolean is_elective
+        integer likes
+    }
+
+    STUDENTS {
+        bigint id PK
+        text name
+        text email UK
+    }
+
+    ENROLLMENTS {
+        bigint id PK
+        text course_id FK
+        bigint student_id FK
+        timestamptz enrolled_at
+    }
+``` 
+
+The database consists of three tables: courses, students, and enrollments. The courses and students tables have a many-to-many relationship, which is implemented through the enrollments junction table. Each enrollment links exactly one course to one student.
+
+## Design decisions
+- Why courses.id is text (slug) while students.id is an automatic number: Course IDs like modern-frontend are readable natural keys that match frontend routes without extra lookups. Student IDs are surrogate bigint auto-increments because names can repeat and email addresses can change over time.
+- Why RESTRICT on enrollments.course_id but CASCADE on enrollments.student_id: Deleting a course with active enrollments could lead to unintended data loss for students, so deletion is restricted until enrollments are removed. Deleting a student should cleanly purge all associated enrollment records automatically.
+- Why timestamptz and not timestamp, and text instead of varchar(n): timestamptz preserves specific moments in time unambiguously across timezones. PostgreSQL treats text without length penalties, making varchar(n) necessary only if there is a strict domain limit.
 
 ## Constraint violation log
 
@@ -62,3 +120,15 @@ Scenario: enroll a new student in a course — two inserts in one transaction.
 - The second insert failed due to a foreign key violation (`enrollments_course_id_fkey`). `psql` changed the prompt to `course_catalog=!>`, indicating that the current transaction was aborted and subsequent commands were ignored until the end of the block. After `ROLLBACK`, the first insert was reverted as well, leaving zero orphaned student records in the database (`count = 0`).
 - Window B saw `count = 0` before `COMMIT` due to the default `Read Committed` isolation level. After `COMMIT` in Window A, Window B saw `count = 1`.
 - Without a transaction, if the second insert had failed, the new student record would have remained permanently saved in the database without any course enrollments ("half an operation" / dangling row).
+
+## Self-review against the checklist 
+
+| What to check | Result | 
+|---------------|--------| 
+| Keys | Yes: PKs on all 3 tables, FKs on course_id and student_id in enrollments. | 
+| Types | Yes: text for strings/slugs, integer for credits/likes, bigint for IDs, timestamptz for dates. | 
+| Required values | Yes: critical columns are set to NOT NULL. | 
+| Constraints | Yes: CHECK (credits > 0), CHECK (likes >= 0), CHECK (length(name) >= 2), UNIQUE (email), UNIQUE (course_id, student_id). | 
+| Deletion | Yes: RESTRICT on course deletion, CASCADE on student deletion. | 
+| Normalization | Yes: 3NF compliance (courses, students, enrollments). likes denormalized intentionally for atomic counter performance. | 
+| Indexes and names | Yes: explicit index on student_id FK. Consistent snake_case naming across tables. | 
