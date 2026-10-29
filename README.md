@@ -133,10 +133,19 @@ Scenario: enroll a new student in a course — two inserts in one transaction.
 | Normalization | Yes: 3NF compliance (courses, students, enrollments). likes denormalized intentionally for atomic counter performance. | 
 | Indexes and names | Yes: explicit index on student_id FK. Consistent snake_case naming across tables. | 
 
-## Bonus task 1: Normalization Experiments
+## Bonus Tasks
+
+### Task 1: Normalization Experiments
 
 Demonstration of three data anomalies in a flat `registrations` table (in database `norm_demo`):
 
 1. **Update Anomaly:** Updating `course_title` for a single student left the course `modern-frontend` with two conflicting titles in different rows. Normalization solves this by storing `course_title` strictly once in the `courses` table.
 2. **Delete Anomaly:** Deleting the single enrollment for `backend-fastapi` completely wiped out the course's metadata (title and credits) from the system. In 3NF, deleting an enrollment removes only the link in `enrollments`, keeping the course record intact in `courses`.
 3. **Insert Anomaly:** Adding a new course `web-security` without enrollments forced inserting a row with `NULL` student credentials. In the normalized schema, new courses are stored independently in `courses` without requiring any student associations.
+
+### Task 2: Lost Update and Row Locking
+
+Comparing the two approaches to updating counters under concurrent access:
+
+- **Read-Calculate-Write Pattern (Lost Update):** When two parallel clients read `likes = 11` into memory, calculate `11 + 1 = 12`, and execute `UPDATE courses SET likes = 12`, one like is completely overwritten and lost (final value is `12` instead of `13`).
+- **Atomic `UPDATE ... SET likes = likes + 1` (Row Lock):** Executing the calculation directly inside the SQL engine acquires an exclusive row-level lock on the course record. When Client A opens a transaction and updates the row, Client B's update command is blocked until Client A commits. Client B then re-reads the fresh value (`12`) and increments it to `13`, preventing any data loss.
